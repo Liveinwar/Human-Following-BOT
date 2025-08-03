@@ -1,0 +1,318 @@
+/*
+ * human_following_robot.ino
+ * 
+ * Arduino Based Human Following Robot
+ * 
+ * Authors: Dwaipayan Bhattacharjee, Trinjan Dutta, Rishav Pramanik
+ * Department: Electronics and Communication Engineering
+ * Institution: RCC Institute of Information Technology
+ * Supervisor: Dr. Subhrajit Sinha Roy
+ * 
+ * Description: This code implements a human following robot using Arduino UNO,
+ * ultrasonic sensor for distance measurement, IR sensors for human detection,
+ * and L298N motor driver for movement control.
+ */
+
+// Pin Definitions
+// Motor Driver L298N Pins
+#define ENA 9    // Enable A - PWM control for Motor A
+#define ENB 10   // Enable B - PWM control for Motor B
+#define IN1 2    // Motor A Direction Pin 1
+#define IN2 3    // Motor A Direction Pin 2
+#define IN3 4    // Motor B Direction Pin 1
+#define IN4 5    // Motor B Direction Pin 2
+
+// Ultrasonic Sensor Pins
+#define TRIG_PIN 7
+#define ECHO_PIN 6
+
+// IR Sensor Pins
+#define LEFT_IR 11   // Left IR sensor
+#define RIGHT_IR 12  // Right IR sensor
+
+// Constants
+#define SAFE_DISTANCE 20    // Safe following distance in cm
+#define MAX_DISTANCE 50     // Maximum detection distance in cm
+#define MIN_DISTANCE 10     // Minimum distance to avoid collision
+#define MOTOR_SPEED 150     // Base motor speed (0-255)
+#define TURN_SPEED 100      // Speed for turning movements
+
+// Global Variables
+long duration;
+int distance;
+bool leftIR, rightIR;
+
+void setup() {
+  // Initialize serial communication for debugging
+  Serial.begin(9600);
+  
+  // Initialize motor driver pins as outputs
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  
+  // Initialize ultrasonic sensor pins
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  
+  // Initialize IR sensor pins as inputs
+  pinMode(LEFT_IR, INPUT);
+  pinMode(RIGHT_IR, INPUT);
+  
+  // Stop motors initially
+  stopMotors();
+  
+  Serial.println("Human Following Robot Initialized");
+  Serial.println("Waiting for human detection...");
+  
+  delay(2000); // 2 second delay for system stabilization
+}
+
+void loop() {
+  // Read sensor values
+  readSensors();
+  
+  // Print sensor values for debugging
+  printSensorValues();
+  
+  // Main decision making logic
+  makeDecision();
+  
+  delay(100); // Small delay for stability
+}
+
+void readSensors() {
+  // Read ultrasonic sensor
+  distance = getUltrasonicDistance();
+  
+  // Read IR sensors (assuming HIGH when object detected)
+  leftIR = digitalRead(LEFT_IR);
+  rightIR = digitalRead(RIGHT_IR);
+}
+
+int getUltrasonicDistance() {
+  // Clear the trigger pin
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  
+  // Send ultrasonic pulse
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  
+  // Read the echo pin
+  duration = pulseIn(ECHO_PIN, HIGH);
+  
+  // Calculate distance in cm
+  int dist = duration * 0.034 / 2;
+  
+  // Return valid distance or maximum if out of range
+  return (dist > 0 && dist < 400) ? dist : MAX_DISTANCE + 1;
+}
+
+void printSensorValues() {
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.print(" cm | Left IR: ");
+  Serial.print(leftIR ? "DETECTED" : "CLEAR");
+  Serial.print(" | Right IR: ");
+  Serial.println(rightIR ? "DETECTED" : "CLEAR");
+}
+
+void makeDecision() {
+  // Priority 1: Obstacle avoidance - if too close, stop or back up
+  if (distance < MIN_DISTANCE) {
+    Serial.println("Action: TOO CLOSE - STOPPING");
+    stopMotors();
+    delay(500);
+    moveBackward();
+    delay(300);
+    stopMotors();
+    return;
+  }
+  
+  // Priority 2: Human following logic based on IR sensors
+  if (rightIR && !leftIR) {
+    // Human detected on right side - turn right
+    Serial.println("Action: TURNING RIGHT");
+    turnRight();
+  }
+  else if (leftIR && !rightIR) {
+    // Human detected on left side - turn left
+    Serial.println("Action: TURNING LEFT");
+    turnLeft();
+  }
+  else if (leftIR && rightIR) {
+    // Human detected on both sides - move forward if distance is appropriate
+    if (distance >= SAFE_DISTANCE && distance <= MAX_DISTANCE) {
+      Serial.println("Action: FOLLOWING - MOVING FORWARD");
+      moveForward();
+    }
+    else if (distance > MAX_DISTANCE) {
+      Serial.println("Action: TARGET TOO FAR - MOVING FORWARD");
+      moveForward();
+    }
+    else {
+      Serial.println("Action: MAINTAINING DISTANCE - STOPPING");
+      stopMotors();
+    }
+  }
+  else {
+    // No human detected by IR sensors
+    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
+      // Object in range but no IR detection - move forward cautiously
+      Serial.println("Action: OBJECT DETECTED - MOVING FORWARD SLOWLY");
+      moveForwardSlow();
+    }
+    else {
+      // No detection - stop and wait
+      Serial.println("Action: NO DETECTION - STOPPING");
+      stopMotors();
+    }
+  }
+}
+
+// Motor control functions
+void moveForward() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, MOTOR_SPEED);
+  analogWrite(ENB, MOTOR_SPEED);
+}
+
+void moveForwardSlow() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, MOTOR_SPEED / 2);
+  analogWrite(ENB, MOTOR_SPEED / 2);
+}
+
+void moveBackward() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, MOTOR_SPEED / 2);
+  analogWrite(ENB, MOTOR_SPEED / 2);
+}
+
+void turnLeft() {
+  // Left motor backward, right motor forward
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, TURN_SPEED);
+  analogWrite(ENB, TURN_SPEED);
+}
+
+void turnRight() {
+  // Left motor forward, right motor backward
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, TURN_SPEED);
+  analogWrite(ENB, TURN_SPEED);
+}
+
+void stopMotors() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+
+// Additional utility functions for enhanced functionality
+
+void rotateLeft() {
+  // Both motors turn in opposite directions for sharp left turn
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, MOTOR_SPEED);
+  analogWrite(ENB, MOTOR_SPEED);
+}
+
+void rotateRight() {
+  // Both motors turn in opposite directions for sharp right turn
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, MOTOR_SPEED);
+  analogWrite(ENB, MOTOR_SPEED);
+}
+
+// Function to perform a sweep search if target is lost
+void searchPattern() {
+  Serial.println("Performing search pattern...");
+  
+  // Turn left for 1 second
+  rotateLeft();
+  delay(1000);
+  stopMotors();
+  delay(500);
+  
+  // Check for detection
+  readSensors();
+  if (leftIR || rightIR) return;
+  
+  // Turn right for 2 seconds (to cover left + right side)
+  rotateRight();
+  delay(2000);
+  stopMotors();
+  delay(500);
+  
+  // Check for detection
+  readSensors();
+  if (leftIR || rightIR) return;
+  
+  // Return to center
+  rotateLeft();
+  delay(1000);
+  stopMotors();
+}
+
+/*
+ * Circuit Connections:
+ * 
+ * L298N Motor Driver:
+ * ENA -> Pin 9 (PWM)
+ * IN1 -> Pin 2
+ * IN2 -> Pin 3
+ * IN3 -> Pin 4
+ * IN4 -> Pin 5
+ * ENB -> Pin 10 (PWM)
+ * 
+ * Ultrasonic Sensor:
+ * VCC -> 5V
+ * GND -> GND
+ * Trig -> Pin 7
+ * Echo -> Pin 6
+ * 
+ * IR Sensors:
+ * Left IR -> Pin 11
+ * Right IR -> Pin 12
+ * VCC -> 5V
+ * GND -> GND
+ * 
+ * Motors:
+ * Left Motor -> Motor A (M1, M2)
+ * Right Motor -> Motor B (M3, M4)
+ * 
+ * Power:
+ * Arduino -> USB or 7-12V external supply
+ * L298N -> 12V battery pack
+ * Motors -> Through L298N
+ */
